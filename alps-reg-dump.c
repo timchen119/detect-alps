@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <limits.h>
 #include <glob.h>
 
@@ -55,7 +56,7 @@ struct alps_serio_dev {
 	int serio_fd;
 };
 
-/* SAF: set to 0 for final version */
+/* XXX: set to 0 for final version */
 static int verbose = 1;
 
 #define verbose_printf(fmt, args...) do { if (verbose) printf(fmt, ##args); } while (0)
@@ -67,10 +68,19 @@ static int verbose = 1;
 static int do_read(int fd, void *buf, size_t count)
 {
 	size_t bytes_read = 0;
+	struct pollfd pfd;
+	int ret;
+
+	pfd.fd = fd;
+	pfd.events = POLLIN;
 
 	do {
-		size_t ret = read(fd, (char *)buf + bytes_read,
-				  count - bytes_read);
+		/* Use poll to timeout if we aren't getting data */
+		ret = poll(&pfd, 1, 500);
+		if (ret == 0 || ret == -1)
+			return -1;
+
+		ret = read(fd, (char *)buf + bytes_read, count - bytes_read);
 		if (ret == -1) {
 			switch (errno) {
 			case EAGAIN:
@@ -421,15 +431,29 @@ static void alps_exit_command_mode(struct alps_serio_dev *dev)
 static void alps_dump_registers(struct alps_serio_dev *dev)
 {
 	int i, val;
+	int retries;
+	unsigned char param[4];
 
-	/* SAF: Need to determine max address to check */
+	/* XXX: Need to determine max address to check */
 	for (i = 0; i <= 0xffff; i++) {
+retry_read:
+		printf("retries = %d\n", retries);
 		val = alps_read_reg(dev, i);
-		printf("%04x ", i);
-		if (i == -1)
-			printf("Failed!\n");
-		else
-			printf("%02x\n", val);
+
+		if (val == -1) {
+			/* Try resetting a few times before giving up */
+			alps_exit_command_mode(dev);
+			ps2_command(dev, param, PSMOUSE_CMD_RESET_BAT);
+			alps_enter_command_mode(dev, param);
+
+			if (--retries)
+				goto retry_read;
+
+			printf("%04x Failed!\n", i);
+			continue;
+		}
+
+		printf("%04x %02x\n", i, val);
 	}
 }
 
