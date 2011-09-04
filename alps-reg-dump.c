@@ -436,8 +436,8 @@ static void alps_dump_registers(struct alps_serio_dev *dev)
 
 	/* XXX: Need to determine max address to check */
 	for (i = 0; i <= 0xffff; i++) {
+		retries = 3;
 retry_read:
-		printf("retries = %d\n", retries);
 		val = alps_read_reg(dev, i);
 
 		if (val == -1) {
