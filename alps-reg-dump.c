@@ -436,23 +436,21 @@ static void alps_dump_registers(struct alps_serio_dev *dev)
 	/* XXX: Need to determine max address to check */
 	for (i = 0; i <= 0xffff; i++) {
 		retries = 3;
-retry_read:
-		val = alps_read_reg(dev, i);
+		do {
+			val = alps_read_reg(dev, i);
+			if (val != -1)
+				break;
 
-		if (val == -1) {
 			/* Try resetting a few times before giving up */
 			alps_exit_command_mode(dev);
 			ps2_command(dev, param, PSMOUSE_CMD_RESET_BAT);
 			alps_enter_command_mode(dev, param);
+		} while (--retries);
 
-			if (--retries)
-				goto retry_read;
-
+		if (val != -1)
+			printf("%04x %02x\n", i, val);
+		else
 			printf("%04x Failed!\n", i);
-			continue;
-		}
-
-		printf("%04x %02x\n", i, val);
 	}
 }
 
