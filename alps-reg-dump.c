@@ -56,8 +56,7 @@ struct alps_serio_dev {
 	int serio_fd;
 };
 
-/* XXX: set to 0 for final version */
-static int verbose = 1;
+static int verbose = 0;
 
 #define verbose_printf(fmt, args...) do { if (verbose) printf(fmt, ##args); } while (0)
 
@@ -182,7 +181,7 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 			fprintf(stderr, "Could not read from %s\n", path);
 		} else if (!strncmp(read_buf, serio_mouse_desc,
 				    sizeof(serio_mouse_desc) - 1)) {
-			verbose_printf("Found serio mouse at %s\n", path);
+			printf("Found serio mouse at %s\n", globbuf.gl_pathv[i]);
 			close(fd);
 			snprintf(path, PATH_MAX, "%sdrvctl", globbuf.gl_pathv[i]);
 			fd = open(path, O_WRONLY);
