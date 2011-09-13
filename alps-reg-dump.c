@@ -51,7 +51,13 @@
 #define PSMOUSE_CMD_RESET_DIS	0x00f6
 #define PSMOUSE_CMD_RESET_BAT	0x02ff
 
+enum {
+	ALPS_PROTO_V3,
+	ALPS_PROTO_V4,
+};
+
 struct alps_serio_dev {
+	int proto_version;
 	char *serio_drvctl_path;
 	int serio_fd;
 };
@@ -326,36 +332,71 @@ static void ps2_drain(struct alps_serio_dev *dev)
 		fprintf(stderr, "Error restoring serio_fd flags, left in nonblock mode\n");
 }
 
+#define ALPS_CMD_NIBBLE_10 0x01f2
+
+struct alps_command_nibbles {
+	int command;
+	unsigned char data;
+};
+
+static const struct alps_command_nibbles alps_nibble_commands_v3[] = {
+	{ PSMOUSE_CMD_SETPOLL,		0x00 }, /* 0 */
+	{ PSMOUSE_CMD_RESET_DIS,	0x00 }, /* 1 */
+	{ PSMOUSE_CMD_SETSCALE21,	0x00 }, /* 2 */
+	{ PSMOUSE_CMD_SETRATE,		0x0a }, /* 3 */
+	{ PSMOUSE_CMD_SETRATE,		0x14 }, /* 4 */
+	{ PSMOUSE_CMD_SETRATE,		0x28 }, /* 5 */
+	{ PSMOUSE_CMD_SETRATE,		0x3c }, /* 6 */
+	{ PSMOUSE_CMD_SETRATE,		0x50 }, /* 7 */
+	{ PSMOUSE_CMD_SETRATE,		0x64 }, /* 8 */
+	{ PSMOUSE_CMD_SETRATE,		0xc8 }, /* 9 */
+	{ ALPS_CMD_NIBBLE_10,		0x00 }, /* a */
+	{ PSMOUSE_CMD_SETRES,		0x00 }, /* b */
+	{ PSMOUSE_CMD_SETRES,		0x01 }, /* c */
+	{ PSMOUSE_CMD_SETRES,		0x02 }, /* d */
+	{ PSMOUSE_CMD_SETRES,		0x03 }, /* e */
+	{ PSMOUSE_CMD_SETSCALE11,	0x00 }, /* f */
+};
+
+static const struct alps_command_nibbles alps_nibble_commands_v4[] = {
+	{ PSMOUSE_CMD_ENABLE,		0x00 }, /* 0 y*/
+	{ PSMOUSE_CMD_RESET_DIS,	0x00 }, /* 1 y*/
+	{ PSMOUSE_CMD_SETSCALE21,	0x00 }, /* 2 p*/
+	{ PSMOUSE_CMD_SETRATE,		0x0a }, /* 3 p*/
+	{ PSMOUSE_CMD_SETRATE,		0x14 }, /* 4 y*/
+	{ PSMOUSE_CMD_SETRATE,		0x28 }, /* 5 y*/
+	{ PSMOUSE_CMD_SETRATE,		0x3c }, /* 6 y*/
+	{ PSMOUSE_CMD_SETRATE,		0x50 }, /* 7 y*/
+	{ PSMOUSE_CMD_SETRATE,		0x64 }, /* 8 y*/
+	{ PSMOUSE_CMD_SETRATE,		0xc8 }, /* 9 y*/
+	{ ALPS_CMD_NIBBLE_10,		0x00 }, /* a p*/
+	{ PSMOUSE_CMD_SETRES,		0x00 }, /* b y*/
+	{ PSMOUSE_CMD_SETRES,		0x01 }, /* c p*/
+	{ PSMOUSE_CMD_SETRES,		0x02 }, /* d ?*/
+	{ PSMOUSE_CMD_SETRES,		0x03 }, /* e ?*/
+	{ PSMOUSE_CMD_SETSCALE11,	0x00 }, /* f y*/
+};
+
 static int alps_send_nibble(struct alps_serio_dev *dev, int nibble)
 {
-	static const struct {
-		int command;
-		unsigned char data;
-	} addr_commands[] = {
-		{ PSMOUSE_CMD_SETPOLL,		0x00 }, /* 0 */
-		{ PSMOUSE_CMD_RESET_DIS,	0x00 }, /* 1 */
-		{ PSMOUSE_CMD_SETSCALE21,	0x00 }, /* 2 */
-		{ PSMOUSE_CMD_SETRATE,		0x0a }, /* 3 */
-		{ PSMOUSE_CMD_SETRATE,		0x14 }, /* 4 */
-		{ PSMOUSE_CMD_SETRATE,		0x28 }, /* 5 */
-		{ PSMOUSE_CMD_SETRATE,		0x3c }, /* 6 */
-		{ PSMOUSE_CMD_SETRATE,		0x50 }, /* 7 */
-		{ PSMOUSE_CMD_SETRATE,		0x64 }, /* 8 */
-		{ PSMOUSE_CMD_SETRATE,		0xc8 }, /* 9 */
-		{ 0x01f2,			0x00 }, /* a */
-		{ PSMOUSE_CMD_SETRES,		0x00 }, /* b */
-		{ PSMOUSE_CMD_SETRES,		0x01 }, /* c */
-		{ PSMOUSE_CMD_SETRES,		0x02 }, /* d */
-		{ PSMOUSE_CMD_SETRES,		0x03 }, /* e */
-		{ PSMOUSE_CMD_SETSCALE11,	0x00 }, /* f */
-	};
-
+	const struct alps_command_nibbles *addr_commands;
 	int command;
 	unsigned char *param;
 	unsigned char dummy[4];
 
 	if (nibble > 0xf)
 		return -1;
+
+	switch (dev->proto_version) {
+	case ALPS_PROTO_V3:
+		addr_commands = alps_nibble_commands_v3;
+		break;
+	case ALPS_PROTO_V4:
+		addr_commands = alps_nibble_commands_v4;
+		break;
+	default:
+		return -1;
+	}
 
 	command = addr_commands[nibble].command;
 	param = (command & 0x0f00) ?
@@ -367,8 +408,20 @@ static int alps_send_nibble(struct alps_serio_dev *dev, int nibble)
 static int alps_set_reg_addr(struct alps_serio_dev *dev, int addr)
 {
 	int i, nibble;
+	int command;
 
-	if (ps2_command(dev, NULL, 0xec))
+	switch (dev->proto_version) {
+	case ALPS_PROTO_V3:
+		command = 0x00ec;
+		break;
+	case ALPS_PROTO_V4:
+		command = 0x00f5;
+		break;
+	default:
+		return -1;
+	}
+
+	if (ps2_command(dev, NULL, command))
 		return -1;
 
 	for (i = 12; i >=0; i -= 4) {
@@ -410,8 +463,7 @@ static int alps_enter_command_mode(struct alps_serio_dev *dev,
 	unsigned char dummy[4];
 	unsigned char *data = param ? param : dummy;
 
-	if (ps2_command(dev, NULL, PSMOUSE_CMD_SETSTREAM) ||
-	    ps2_command(dev, NULL, 0xec) ||
+	if (ps2_command(dev, NULL, 0xec) ||
 	    ps2_command(dev, NULL, 0xec) ||
 	    ps2_command(dev, NULL, 0xec) ||
 	    ps2_command(dev, data, PSMOUSE_CMD_GETINFO)) {
@@ -542,6 +594,28 @@ int main(void)
 	}
 	printf("Command mode response: %02hhx %02hhx %02hhx\n",
 	       param[0], param[1], param[2]);
+
+	/*
+	 * XXX: Currently we're assuming that the last byte of the
+	 * command mode response allows us to differentiate between
+	 * V3 and V4 protocol.
+	 */
+	switch (param[2]) {
+	case 0x9b:
+	case 0x9d:
+		/* revision 1 */
+		dev->proto_version = ALPS_PROTO_V3;
+		break;
+	case 0x8a:
+		/* revision 2 */
+		dev->proto_version = ALPS_PROTO_V4;
+		break;
+	default:
+		/* unknown revision */
+		printf("Unknown command mode response, assuming protocol version 3\n");
+		dev->proto_version = ALPS_PROTO_V3;
+		break;
+	}
 
 	alps_dump_registers(dev);
 
