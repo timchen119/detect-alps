@@ -94,7 +94,7 @@ static int do_read(int fd, void *buf, size_t count)
 				return -1;
 			}
 		} else if (ret == 0) {
-			fprintf(stderr, "Unexpected end of file\n");
+			printf("Unexpected end of file\n");
 			return -1;
 		}
 		bytes_read += ret;
@@ -122,7 +122,7 @@ static int do_write(int fd, const void *buf, size_t count)
 				return -1;
 			}
 		} else if (ret == 0) {
-			fprintf(stderr, "Unexpected end of file\n");
+			printf("Unexpected end of file\n");
 			return -1;
 		}
 		bytes_written += ret;
@@ -178,13 +178,13 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 
 		fd = open(path, O_RDONLY);
 		if (fd == -1) {
-			fprintf(stderr, "Could not open %s for reading: %s\n",
-				path, strerror(errno));
+			printf("Could not open %s for reading: %s\n",
+			       path, strerror(errno));
 			continue;
 		}
 
 		if (read(fd, read_buf, sizeof(read_buf)) <= 0) {
-			fprintf(stderr, "Could not read from %s\n", path);
+			printf("Could not read from %s\n", path);
 		} else if (!strncmp(read_buf, serio_mouse_desc,
 				    sizeof(serio_mouse_desc) - 1)) {
 			printf("Found serio mouse at %s\n", globbuf.gl_pathv[i]);
@@ -192,13 +192,13 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 			snprintf(path, PATH_MAX, "%sdrvctl", globbuf.gl_pathv[i]);
 			fd = open(path, O_WRONLY);
 			if (fd == -1) {
-				fprintf(stderr, "Could not open %s for writing: %s\n",
-					path, strerror(errno));
+				printf("Could not open %s for writing: %s\n",
+				       path, strerror(errno));
 				return -1;
 			}
 
 			if (write(fd, "serio_raw", 9) != 9) {
-				fprintf(stderr, "Error writing to %s\n", path);
+				printf("Error writing to %s\n", path);
 			} else {
 				dev->serio_drvctl_path = strdup(path);
 				if (dev->serio_drvctl_path)
@@ -220,7 +220,7 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 		globfree(&globbuf);
 		ret = glob("/dev/serio_raw*", GLOB_ERR, NULL, &globbuf);
 		if (ret) {
-			fprintf(stderr, "Could not find serio_raw device node\n");
+			printf("Could not find serio_raw device node\n");
 			goto free_glob;
 		}
 
@@ -229,7 +229,7 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 			dev->serio_fd = ret;
 			ret = 0;
 		} else {
-			fprintf(stderr, "Failed to open device node %s\n",
+			printf("Failed to open device node %s\n",
 				globbuf.gl_pathv[0]);
 		}
 	}
@@ -275,37 +275,35 @@ static int ps2_command(struct alps_serio_dev *dev, unsigned char *data,
 		return -1;
 
 	if (do_write(dev->serio_fd, &cmd, 1)) {
-		fprintf(stderr, "Error writing to serio device\n");
+		printf("Error writing to serio device\n");
 		return -1;
 	}
 
 	/* Need to read ack byte before sending/receiving data */
 	if (do_read(dev->serio_fd, &ack_byte, 1)) {
-		fprintf(stderr, "Error reading ack byte\n");
+		printf("Error reading ack byte\n");
 		return -1;
 	}
 	if (ack_byte != 0xfa) {
-		fprintf(stderr, "Invalid ack byte 0x%02hhx after command\n",
-			ack_byte);
+		printf("Invalid ack byte 0x%02hhx after command\n", ack_byte);
 		return -1;
 	}
 
 	if (send_bytes) {
 		if (do_write(dev->serio_fd, data, send_bytes)) {
-			fprintf(stderr, "Error writing command data\n");
+			printf("Error writing command data\n");
 			return -1;
 		} else if (do_read(dev->serio_fd, &ack_byte, 1)) {
-			fprintf(stderr, "Error reading ack byte after sending data\n");
+			printf("Error reading ack byte after sending data\n");
 			return -1;
 		} else if (ack_byte != 0xfa) {
-			fprintf(stderr, "Invalid ack byte 0x%02hhx after data\n",
-					ack_byte);
+			printf("Invalid ack byte 0x%02hhx after data\n", ack_byte);
 			return -1;
 		}
 	}
 
 	if (recv_bytes && do_read(dev->serio_fd, data, recv_bytes)) {
-		fprintf(stderr, "Error reading command response\n");
+		printf("Error reading command response\n");
 		return -1;
 	}
 
@@ -319,11 +317,11 @@ static void ps2_drain(struct alps_serio_dev *dev)
 
 	flags = fcntl(dev->serio_fd, F_GETFL);
 	if (flags == -1) {
-		fprintf(stderr, "Could not get serio_fd flags, device will not be drained\n");
+		printf("Could not get serio_fd flags, device will not be drained\n");
 		return;
 	}
 	if (fcntl(dev->serio_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-		fprintf(stderr, "Could not set serio_fd flags, device will not be drained\n");
+		printf("Could not set serio_fd flags, device will not be drained\n");
 		return;
 	}
 
@@ -331,7 +329,7 @@ static void ps2_drain(struct alps_serio_dev *dev)
 		;
 
 	if (fcntl(dev->serio_fd, F_SETFL, flags))
-		fprintf(stderr, "Error restoring serio_fd flags, left in nonblock mode\n");
+		printf("Error restoring serio_fd flags, left in nonblock mode\n");
 }
 
 #define ALPS_CMD_NIBBLE_10 0x01f2
@@ -469,7 +467,7 @@ static int alps_enter_command_mode(struct alps_serio_dev *dev,
 	    ps2_command(dev, NULL, 0xec) ||
 	    ps2_command(dev, NULL, 0xec) ||
 	    ps2_command(dev, data, PSMOUSE_CMD_GETINFO)) {
-		fprintf(stderr, "Failed to enter command mode\n");
+		printf("Failed to enter command mode\n");
 		return -1;
 	}
 
@@ -520,12 +518,12 @@ int main(void)
 
 	dev = alps_serio_alloc();
 	if (!dev) {
-		fprintf(stderr, "Error: Could not allocate device\n");
+		printf("Error: Could not allocate device\n");
 		exit(EXIT_FAILURE);
 	}
 
 	if (serio_mouse_init(dev)) {
-		fprintf(stderr, "Error: Could not locate serio mouse\n");
+		printf("Error: Could not locate serio mouse\n");
 		serio_mouse_deinit(dev);
 		exit(EXIT_FAILURE);
 	}
