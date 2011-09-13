@@ -219,8 +219,10 @@ static int serio_mouse_init(struct alps_serio_dev *dev)
 		 */
 		globfree(&globbuf);
 		ret = glob("/dev/serio_raw*", GLOB_ERR, NULL, &globbuf);
-		if (ret)
+		if (ret) {
+			fprintf(stderr, "Could not find serio_raw device node\n");
 			goto free_glob;
+		}
 
 		ret = open(globbuf.gl_pathv[0], O_RDWR);
 		if (ret != -1) {
