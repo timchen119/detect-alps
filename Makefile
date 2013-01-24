@@ -1,14 +1,14 @@
 CC = gcc
 CFLAGS = -Wall -Werror
-OBJ = alps-reg-dump.o
+OBJ = detect-alps.o
 
 %.o: %.c
 	$(CC) -c -o $@ $^ $(CFLAGS)
 
-alps-reg-dump: $(OBJ)
+detect-alps: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS)
 
 .PHONY: clean
 
 clean:
-	rm -f $(OBJ) alps-reg-dump
+	rm -f $(OBJ) detect-alps

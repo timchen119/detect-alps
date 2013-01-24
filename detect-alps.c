@@ -377,135 +377,6 @@ static const struct alps_command_nibbles alps_nibble_commands_v4[] = {
 	{ PSMOUSE_CMD_SETSCALE11,	0x00 }, /* f y*/
 };
 
-static int alps_send_nibble(struct alps_serio_dev *dev, int nibble)
-{
-	const struct alps_command_nibbles *addr_commands;
-	int command;
-	unsigned char *param;
-	unsigned char dummy[4];
-
-	if (nibble > 0xf)
-		return -1;
-
-	switch (dev->proto_version) {
-	case ALPS_PROTO_V3:
-		addr_commands = alps_nibble_commands_v3;
-		break;
-	case ALPS_PROTO_V4:
-		addr_commands = alps_nibble_commands_v4;
-		break;
-	default:
-		return -1;
-	}
-
-	command = addr_commands[nibble].command;
-	param = (command & 0x0f00) ?
-		dummy : (unsigned char *)&addr_commands[nibble].data;
-
-	return ps2_command(dev, param, command);
-}
-
-static int alps_set_reg_addr(struct alps_serio_dev *dev, int addr)
-{
-	int i, nibble;
-	int command;
-
-	switch (dev->proto_version) {
-	case ALPS_PROTO_V3:
-		command = 0x00ec;
-		break;
-	case ALPS_PROTO_V4:
-		command = 0x00f5;
-		break;
-	default:
-		return -1;
-	}
-
-	if (ps2_command(dev, NULL, command))
-		return -1;
-
-	for (i = 12; i >=0; i -= 4) {
-		nibble = (addr >> i) & 0xf;
-		if (alps_send_nibble(dev, nibble))
-			return -1;
-	}
-
-	return 0;
-}
-
-/*
- * Returns register value, or -1 on error.
- */
-static int alps_read_reg(struct alps_serio_dev *dev, int addr)
-{
-	unsigned char param[4];
-
-	if (alps_set_reg_addr(dev, addr))
-		return -1;
-
-	if (ps2_command(dev, param, PSMOUSE_CMD_GETINFO))
-		return -1;
-
-	/*
-	 * Address being read is returned in the first two bytes of
-	 * the result. Verify this matches the requested address.
-	 */
-	if (addr != ((param[0] << 8) | param[1]))
-		return -1;
-
-	/* Register value is in third byte of result */
-	return param[2];
-}
-
-static int alps_enter_command_mode(struct alps_serio_dev *dev,
-				   unsigned char *param)
-{
-	unsigned char dummy[4];
-	unsigned char *data = param ? param : dummy;
-
-	if (ps2_command(dev, NULL, 0xec) ||
-	    ps2_command(dev, NULL, 0xec) ||
-	    ps2_command(dev, NULL, 0xec) ||
-	    ps2_command(dev, data, PSMOUSE_CMD_GETINFO)) {
-		printf("Failed to enter command mode\n");
-		return -1;
-	}
-
-	return 0;
-}
-
-static void alps_exit_command_mode(struct alps_serio_dev *dev)
-{
-	ps2_command(dev, NULL, PSMOUSE_CMD_SETSTREAM);
-}
-
-static void alps_dump_registers(struct alps_serio_dev *dev)
-{
-	int i, val;
-	int retries;
-	unsigned char param[4];
-
-	/* XXX: Need to determine max address to check */
-	for (i = 0; i <= 0xffff; i++) {
-		retries = 3;
-		do {
-			val = alps_read_reg(dev, i);
-			if (val != -1)
-				break;
-
-			/* Try resetting a few times before giving up */
-			alps_exit_command_mode(dev);
-			ps2_command(dev, param, PSMOUSE_CMD_RESET_BAT);
-			alps_enter_command_mode(dev, param);
-		} while (--retries);
-
-		if (val != -1)
-			printf("%04x %02x\n", i, val);
-		else
-			printf("%04x Failed!\n", i);
-	}
-}
-
 int main(void)
 {
 	struct alps_serio_dev *dev;
@@ -575,51 +446,21 @@ int main(void)
 		printf("E7 report failed, not an ALPS touchpad\n");
 		goto cleanup;
 	}
-
-	if (param[0] != 0x73 || param[1] != 0x02 || param[2] != 0x64) {
+	
+	if (param[0] == 0x73 && param[1] == 0x03 && param[2] == 0x50) {
+	    printf("V6 ALPS touchpad found\n");
+	}
+	else if (param[0] == 0x73 && param[1] == 0x03 && param[2] == 0x0a) {
+	    printf("V5 ALPS touchpad found\n");
+	}
+	else if (param[0] == 0x73 && param[1] == 0x02 && param[2] == 0x64) {
+	    printf("V3 ALPS touchpad found\n");
+	}
+	else {
 		printf("E7 report: %02hhx %02hhx %02hhx\n",
 		       param[0], param[1], param[2]);
-		printf("Not a v3 ALPS touchpad\n");
-		goto cleanup;
+		printf("Not an ALPS touchpad\n");
 	}
-
-	/*
-	 * Enter command mode for reading registers. Output response,
-	 * as I don't know what it means and would like to see what
-	 * values are being reported.
-	 */
-	if (alps_enter_command_mode(dev, param)) {
-		printf("ALPS device failed to enter command mode\n");
-		goto cleanup;
-	}
-	printf("Command mode response: %02hhx %02hhx %02hhx\n",
-	       param[0], param[1], param[2]);
-
-	/*
-	 * XXX: Currently we're assuming that the last byte of the
-	 * command mode response allows us to differentiate between
-	 * V3 and V4 protocol.
-	 */
-	switch (param[2]) {
-	case 0x9b:
-	case 0x9d:
-		/* revision 1 */
-		dev->proto_version = ALPS_PROTO_V3;
-		break;
-	case 0x8a:
-		/* revision 2 */
-		dev->proto_version = ALPS_PROTO_V4;
-		break;
-	default:
-		/* unknown revision */
-		printf("Unknown command mode response, assuming protocol version 3\n");
-		dev->proto_version = ALPS_PROTO_V3;
-		break;
-	}
-
-	alps_dump_registers(dev);
-
-	alps_exit_command_mode(dev);
 
 cleanup:
 	serio_mouse_deinit(dev);
