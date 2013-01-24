@@ -7,8 +7,13 @@ OBJ = detect-alps.o
 
 detect-alps: $(OBJ)
 	$(CC) -o $@ $^ $(CFLAGS)
+	strip $@
 
 .PHONY: clean
+
+install: detect-alps
+	install -d $(DESTDIR)/usr/bin
+	install -m 755 detect-alps $(DESTDIR)/usr/bin/
 
 clean:
 	rm -f $(OBJ) detect-alps
